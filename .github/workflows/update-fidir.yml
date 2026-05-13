@@ -1,0 +1,40 @@
+name: Update FI Directory
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # Daily at 8:00 AM UTC (1:00 AM PT / 4:00 AM ET)
+  workflow_dispatch:       # Allows manual trigger from the GitHub Actions tab
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write      # Allows the job to commit and push to the repo
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Download FIDIR files and update index.html
+        run: python update_fidir.py
+
+      - name: Commit and push if data changed
+        run: |
+          git config user.name  "FI Directory Bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if git diff --staged --quiet; then
+            echo "No changes — index.html is already up to date."
+          else
+            git commit -m "chore: update FI directory data $(date -u +%Y-%m-%d)"
+            git push
+          fi
