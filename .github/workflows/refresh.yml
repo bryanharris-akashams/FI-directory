@@ -1,0 +1,67 @@
+name: FI Directory Refresh
+
+on:
+  schedule:
+    # Runs daily at 06:00 UTC (adjust to taste)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    # Allows manual "Run workflow" button in the Actions tab
+
+# Required for GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only allow one Pages deployment at a time
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Fetch & Deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch FI Directory & Generate HTML
+        id: fetch
+        run: python fetch_fidir.py
+
+      # Upload the ./dist folder as the Pages artifact
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      # Deploy to GitHub Pages
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
+
+      # ── Slack failure alert ──────────────────────────────────────────────
+      # Optional: add SLACK_WEBHOOK_URL as a repo secret to enable.
+      # In Slack: Apps → Incoming Webhooks → Add → copy URL → paste as secret.
+      - name: Notify Slack on failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          DATE=$(date -u +"%Y-%m-%d")
+          curl -s -o /dev/null -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data "{
+              \"text\": \"🚨 *daily-fidir-refresh failed* — ${DATE}\n*Run:* ${RUN_URL}\n\n*How to fix:*\n1. Click the Run URL above to see the error log\n2. Re-run the workflow from the Actions tab to retry\n3. *Fetch failure* → OFX endpoint may be temporarily down — wait 1 hour and retry\n4. *Count is 0 but no fetch error* → fidir.txt format may have changed — update the SCHEMA column offsets in fetch_fidir.py\n\"
+            }"
